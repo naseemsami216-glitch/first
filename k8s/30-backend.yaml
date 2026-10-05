@@ -1,0 +1,47 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: backend, namespace: demo-app }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: backend } }
+  template:
+    metadata: { labels: { app: backend } }
+    spec:
+      containers:
+        - name: backend
+          image: ghcr.io/YOUR_USER/YOUR_REPO/backend:latest   # <- change
+          ports: [{ containerPort: 3000 }]
+          envFrom:
+            - configMapRef: { name: app-config }
+            - secretRef: { name: app-secret }
+          livenessProbe:
+            httpGet: { path: /health, port: 3000 }
+            initialDelaySeconds: 10
+          readinessProbe:
+            httpGet: { path: /ready, port: 3000 }
+            initialDelaySeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }   # HPA needs requests
+            limits: { cpu: 500m, memory: 256Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: backend, namespace: demo-app }
+spec:
+  selector: { app: backend }
+  ports: [{ port: 3000, targetPort: 3000 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: backend-hpa, namespace: demo-app }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: backend }
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 60 } }
+    - type: Resource
+      resource: { name: memory, target: { type: Utilization, averageUtilization: 75 } }
+  behavior:
+    scaleDown: { stabilizationWindowSeconds: 120 }

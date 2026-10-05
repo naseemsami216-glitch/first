@@ -1,0 +1,52 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: frontend, namespace: demo-app }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: frontend } }
+  template:
+    metadata: { labels: { app: frontend } }
+    spec:
+      containers:
+        - name: frontend
+          image: ghcr.io/YOUR_USER/YOUR_REPO/frontend:latest   # <- change
+          ports: [{ containerPort: 8080 }]
+          readinessProbe:
+            httpGet: { path: /health, port: 8080 }
+          resources:
+            requests: { cpu: 50m, memory: 32Mi }
+            limits: { cpu: 200m, memory: 64Mi }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: frontend, namespace: demo-app }
+spec:
+  selector: { app: frontend }
+  ports: [{ port: 80, targetPort: 8080 }]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: { name: frontend-hpa, namespace: demo-app }
+spec:
+  scaleTargetRef: { apiVersion: apps/v1, kind: Deployment, name: frontend }
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource: { name: cpu, target: { type: Utilization, averageUtilization: 70 } }
+---
+# Ingress controller endpoint (NGINX Ingress)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: app-ingress
+  namespace: demo-app
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: demo.local          # add to /etc/hosts for Minikube
+      http:
+        paths:
+          - { path: /, pathType: Prefix, backend: { service: { name: frontend, port: { number: 80 } } } }

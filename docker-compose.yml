@@ -1,0 +1,51 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [backend-net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 10s
+      retries: 5
+
+  cache:
+    image: redis:7-alpine
+    networks: [backend-net]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+
+  backend:
+    build:
+      context: ./backend
+      target: runtime
+    environment:
+      DB_HOST: db
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      REDIS_URL: redis://cache:6379
+    depends_on:
+      db: { condition: service_healthy }
+      cache: { condition: service_healthy }
+    networks: [backend-net, frontend-net]
+    # No "ports": reachable only inside the compose network
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "8080:8080"      # host:container - only public entry point
+    depends_on: [backend]
+    networks: [frontend-net]
+
+networks:
+  backend-net: { internal: true }   # DB/Redis isolated from outside
+  frontend-net: {}
+
+volumes:
+  pgdata:
